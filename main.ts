@@ -106,8 +106,19 @@ const generateTricksAndWinner = function* (): Generator<[Trick, number]> {
 }
 
 type Bid = 0 | 1
-type PlayerIndex = 0 | 1 | 2 | 3
-type Strategy = (previousBids: readonly Bid[], card: Card) => Bid
+type BidHistory = {
+  0: readonly []
+  1: readonly [Bid]
+  2: readonly [Bid, Bid]
+  3: readonly [Bid, Bid, Bid]
+}
+type PlayerIndex = keyof BidHistory & number
+type Strategy<I extends PlayerIndex> = (previousBids: BidHistory[I], card: Card) => Bid
+type PreviousStrategies<I extends PlayerIndex> =
+  I extends 0 ? readonly [] :
+  I extends 1 ? readonly [Strategy<0>] :
+  I extends 2 ? readonly [Strategy<0>, Strategy<1>] :
+  readonly [Strategy<0>, Strategy<1>, Strategy<2>]
 type OutcomeCounts = { wins: number; losses: number }
 type CardKey = `${Suit}${Rank}`
 
@@ -130,7 +141,10 @@ const recordOutcome = (outcomes: Map<string, OutcomeCounts>, key: string, won: b
   }
 }
 
-const deriveStrategy = (playerIndex: PlayerIndex, previousStrategies: readonly Strategy[]): Strategy => {
+const deriveStrategy = <I extends PlayerIndex>(
+  playerIndex: I,
+  previousStrategies: PreviousStrategies<I>,
+): Strategy<I> => {
   if (previousStrategies.length !== playerIndex) {
     throw new Error("Expected one strategy for each previous player")
   }
@@ -141,7 +155,9 @@ const deriveStrategy = (playerIndex: PlayerIndex, previousStrategies: readonly S
     const previousBids: Bid[] = []
 
     for (const [index, strategy] of previousStrategies.entries()) {
-      previousBids.push(strategy(previousBids, trick[index]))
+      // Each strategy receives the bids collected from exactly its predecessors.
+      const previousStrategy = strategy as (previousBids: readonly Bid[], card: Card) => Bid
+      previousBids.push(previousStrategy(previousBids, trick[index]))
     }
 
     recordOutcome(outcomes, stateKey(previousBids, trick[playerIndex]), winningIndex === playerIndex)
@@ -161,9 +177,7 @@ const deriveStrategy = (playerIndex: PlayerIndex, previousStrategies: readonly S
 }
 
 const p1Strategy = deriveStrategy(0, [])
-const p1Bid = (card: Card): Bid => p1Strategy([], card)
 
 const p2Strategy = deriveStrategy(1, [p1Strategy])
-const p2Bid = (player1Bid: Bid, card: Card): Bid => p2Strategy([player1Bid], card)
 
-console.log(p2Bid(1, { suit: "♠️", rank: "J" }))
+console.log(p2Strategy([1], { suit: "♠️", rank: "J" }))
