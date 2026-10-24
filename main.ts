@@ -35,20 +35,20 @@ type Card = {
   readonly rank: Rank
 }
 
-const isBetter = (cardA: Card, cardB: Card, suitLed: Suit): boolean => {
-  if (cardA.suit === cardB.suit) {
-    return rankValue[cardA.rank] > rankValue[cardB.rank]
+const beatsCurrentWinner = (candidate: Card, currentWinner: Card, ledSuit: Suit): boolean => {
+  if (candidate.suit === currentWinner.suit) {
+    return rankValue[candidate.rank] > rankValue[currentWinner.rank]
   }
 
-  if (cardA.suit === trumpSuit) {
+  if (candidate.suit === trumpSuit) {
     return true
   }
 
-  if (cardB.suit === trumpSuit) {
+  if (currentWinner.suit === trumpSuit) {
     return false
   }
 
-  if (cardA.suit === suitLed) {
+  if (candidate.suit === ledSuit) {
     return true
   }
 
@@ -56,19 +56,19 @@ const isBetter = (cardA: Card, cardB: Card, suitLed: Suit): boolean => {
 }
 
 const getWinningIndex = (cards: readonly Card[]) => {
-  let bestCard: Card | undefined
-  let suitLed: Suit | undefined
-  let bestIndex: number = -1
+  let winningCard: Card | undefined
+  let ledSuit: Suit | undefined
+  let winningIndex = -1
   
   for (const [index, card] of cards.entries()) {
-    suitLed = suitLed ?? card.suit
-    if (!bestCard || isBetter(card, bestCard, suitLed)) {
-      bestIndex = index
-      bestCard = card
+    ledSuit = ledSuit ?? card.suit
+    if (!winningCard || beatsCurrentWinner(card, winningCard, ledSuit)) {
+      winningIndex = index
+      winningCard = card
     }
   }
 
-  return bestIndex
+  return winningIndex
 }
 
 type Trick = readonly [Card, Card, Card, Card]
@@ -106,62 +106,64 @@ const generateTricksAndWinner = function* (): Generator<[Trick, number]> {
 }
 
 type Bid = 0 | 1
+type PlayerIndex = 0 | 1 | 2 | 3
+type Strategy = (previousBids: readonly Bid[], card: Card) => Bid
+type OutcomeCounts = { wins: number; losses: number }
+type CardKey = `${Suit}${Rank}`
 
-const deriveP1Strategy = (): (cP1: Card) => Bid => {
-  const winLossMap = new Map<`${Suit}${Rank}`, [win: number, loss: number]>()
+const cardKey = ({ suit, rank }: Card): CardKey => `${suit}${rank}` as const
 
-  for (const [[{ suit, rank }], winner] of generateTricksAndWinner()) {
-    const key = `${suit}${rank}` as const
-    let tally = winLossMap.get(key) 
+const stateKey = (previousBids: readonly Bid[], card: Card): string =>
+  `${previousBids.join(",")}|${cardKey(card)}`
 
-    if (!tally) {
-      tally = [0, 0]
-      winLossMap.set(key, tally)
-    }
-    
-    const incrementIndex = winner === 0 ? 0 : 1
-
-    tally[incrementIndex] += 1
+const recordOutcome = (outcomes: Map<string, OutcomeCounts>, key: string, won: boolean): void => {
+  let counts = outcomes.get(key)
+  if (!counts) {
+    counts = { wins: 0, losses: 0 }
+    outcomes.set(key, counts)
   }
 
-  return ({ suit, rank }: Card) => {
-    const key = `${suit}${rank}` as const
-    const [win, loss] = winLossMap.get(key)!
-
-    return win >= loss ? 1 : 0
+  if (won) {
+    counts.wins += 1
+  } else {
+    counts.losses += 1
   }
 }
 
-const p1Bid = deriveP1Strategy()
-
-const deriveP2Strategy = (): (bP1: Bid, cP2: Card) => Bid => {
-  const winLossMap = new Map<`${Bid}-${Suit}${Rank}`, [win: number, loss: number]>()
-
-  for (const [[p1card, { suit, rank }], winner] of generateTricksAndWinner()) {
-    const key = `${p1Bid(p1card)}-${suit}${rank}` as const
-    let tally = winLossMap.get(key)
-
-    if (!tally) {
-      tally = [0, 0]
-      winLossMap.set(key, tally)
-    }
-
-    const incrementIndex = winner === 1 ? 0 : 1
-
-    tally[incrementIndex] += 1
+const deriveStrategy = (playerIndex: PlayerIndex, previousStrategies: readonly Strategy[]): Strategy => {
+  if (previousStrategies.length !== playerIndex) {
+    throw new Error("Expected one strategy for each previous player")
   }
 
-  return (bP1: Bid, { suit, rank }: Card) => {
-    const key = `${bP1}-${suit}${rank}` as const
+  const outcomes = new Map<string, OutcomeCounts>()
 
-    const [win, loss] = winLossMap.get(key)!
+  for (const [trick, winningIndex] of generateTricksAndWinner()) {
+    const previousBids: Bid[] = []
 
-    return win >= loss ? 1 : 0
+    for (const [index, strategy] of previousStrategies.entries()) {
+      previousBids.push(strategy(previousBids, trick[index]))
+    }
+
+    recordOutcome(outcomes, stateKey(previousBids, trick[playerIndex]), winningIndex === playerIndex)
+  }
+
+  return (previousBids, card) => {
+    if (previousBids.length !== playerIndex) {
+      throw new Error(`Expected ${playerIndex} previous bids`)
+    }
+
+    const key = stateKey(previousBids, card)
+    const counts = outcomes.get(key)
+    if (!counts) throw new Error(`No outcomes for ${key}`)
+
+    return counts.wins >= counts.losses ? 1 : 0
   }
 }
 
-const p2Bid = deriveP2Strategy()
+const p1Strategy = deriveStrategy(0, [])
+const p1Bid = (card: Card): Bid => p1Strategy([], card)
 
-console.log(p2Bid(1, { suit: "♠️", rank: "J"}))
+const p2Strategy = deriveStrategy(1, [p1Strategy])
+const p2Bid = (player1Bid: Bid, card: Card): Bid => p2Strategy([player1Bid], card)
 
-// TODO: return bid AND confidence level / odds of winning trick
+console.log(p2Bid(1, { suit: "♠️", rank: "J" }))
