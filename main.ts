@@ -106,25 +106,13 @@ const generateTricksAndWinner = function* (): Generator<[Trick, number]> {
 }
 
 type Bid = 0 | 1
-type BidHistory = {
-  0: readonly []
-  1: readonly [Bid]
-  2: readonly [Bid, Bid]
-  3: readonly [Bid, Bid, Bid]
-}
-type PlayerIndex = keyof BidHistory & number
 type OutcomeCounts = { wins: number; losses: number }
 type StrategyResult = OutcomeCounts & {
   bid: Bid
   totalScenarios: number
   winProbability: number
 }
-type Strategy<I extends PlayerIndex> = (previousBids: BidHistory[I], card: Card) => StrategyResult
-type PreviousStrategies<I extends PlayerIndex> =
-  I extends 0 ? readonly [] :
-  I extends 1 ? readonly [Strategy<0>] :
-  I extends 2 ? readonly [Strategy<0>, Strategy<1>] :
-  readonly [Strategy<0>, Strategy<1>, Strategy<2>]
+type Strategy = (previousBids: readonly Bid[], card: Card) => StrategyResult
 type CardKey = `${Suit}${Rank}`
 
 const cardKey = ({ suit, rank }: Card): CardKey => `${suit}${rank}` as const
@@ -146,10 +134,7 @@ const recordOutcome = (outcomes: Map<string, OutcomeCounts>, key: string, won: b
   }
 }
 
-const deriveStrategy = <I extends PlayerIndex>(
-  playerIndex: I,
-  previousStrategies: PreviousStrategies<I>,
-): Strategy<I> => {
+const deriveStrategy = (playerIndex: number, previousStrategies: readonly Strategy[]): Strategy => {
   if (previousStrategies.length !== playerIndex) {
     throw new Error("Expected one strategy for each previous player")
   }
@@ -160,9 +145,7 @@ const deriveStrategy = <I extends PlayerIndex>(
     const previousBids: Bid[] = []
 
     for (const [index, strategy] of previousStrategies.entries()) {
-      // Each strategy receives the bids collected from exactly its predecessors.
-      const previousStrategy = strategy as (previousBids: readonly Bid[], card: Card) => StrategyResult
-      previousBids.push(previousStrategy(previousBids, trick[index]).bid)
+      previousBids.push(strategy(previousBids, trick[index]).bid)
     }
 
     recordOutcome(outcomes, stateKey(previousBids, trick[playerIndex]), winningIndex === playerIndex)
@@ -195,5 +178,48 @@ const p2Strategy = deriveStrategy(1, [p1Strategy])
 const p3Strategy = deriveStrategy(2, [p1Strategy, p2Strategy])
 const p4Strategy = deriveStrategy(3, [p1Strategy, p2Strategy, p3Strategy])
 
+const generateBidHistories = function* (length: number): Generator<Bid[]> {
+  if (length === 0) {
+    yield []
+    return
+  }
 
-console.log(p4Strategy([1, 1, 1], { suit: "♠️", rank: "A" }))
+  for (const previousBids of generateBidHistories(length - 1)) {
+    yield [0, ...previousBids]
+    yield [1, ...previousBids]
+  }
+}
+
+const trumpCards = [...availableDeck()]
+  .filter((card) => card.suit === trumpSuit)
+  .sort((a, b) => rankValue[b.rank] - rankValue[a.rank])
+
+const findThresholdCard = (strategy: Strategy, previousBids: readonly Bid[]): Card | undefined => {
+  let thresholdCard: Card | undefined
+  let belowThreshold = false
+
+  for (const card of trumpCards) {
+    if (strategy(previousBids, card).bid === 0) {
+      belowThreshold = true
+    } else if (belowThreshold) {
+      throw new Error(`No single trump threshold for bids [${previousBids.join(", ")}]`)
+    } else {
+      thresholdCard = card
+    }
+  }
+
+  return thresholdCard
+}
+
+for (const [playerIndex, strategy] of [p1Strategy, p2Strategy, p3Strategy, p4Strategy].entries()) {
+  const rows = [...generateBidHistories(playerIndex)].map((previousBids, rowIndex) => {
+    const thresholdCard = findThresholdCard(strategy, previousBids)
+    return {
+      Player: rowIndex === 0 ? `P${playerIndex + 1}` : "",
+      "Previous bids": previousBids.join(", ") || "—",
+      "Trump threshold": thresholdCard?.rank ?? "Never",
+    }
+  })
+
+  console.table(rows)
+}
