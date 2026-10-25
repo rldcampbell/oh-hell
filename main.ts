@@ -1,4 +1,4 @@
- const suits = ["♠️", "♥️", "♦️", "♣️"] as const
+const suits = ["♠️", "♥️", "♦️", "♣️"] as const
 
 type Suit = (typeof suits)[number]
 
@@ -11,10 +11,10 @@ const values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] as const
 type Value = (typeof values)[number]
 
 const rankValue: Record<Rank, Value> = {
-  "A": 13,
-  "K": 12,
-  "Q": 11,
-  "J": 10,
+  A: 13,
+  K: 12,
+  Q: 11,
+  J: 10,
   "10": 9,
   "9": 8,
   "8": 7,
@@ -24,7 +24,7 @@ const rankValue: Record<Rank, Value> = {
   "4": 3,
   "3": 2,
   "2": 1,
-} 
+}
 
 type Card = {
   readonly suit: Suit
@@ -61,7 +61,7 @@ const getWinningIndex = (cards: readonly Card[], trumpSuit: Suit) => {
   let winningCard: Card | undefined
   let ledSuit: Suit | undefined
   let winningIndex = -1
-  
+
   for (const [index, card] of cards.entries()) {
     ledSuit = ledSuit ?? card.suit
     if (!winningCard || beatsCurrentWinner(card, winningCard, ledSuit, trumpSuit)) {
@@ -112,8 +112,7 @@ type CardKey = `${Suit}${Rank}`
 
 const cardKey = ({ suit, rank }: Card): CardKey => `${suit}${rank}` as const
 
-const stateKey = (previousBids: readonly Bid[], card: Card): string =>
-  `${previousBids.join(",")}|${cardKey(card)}`
+const stateKey = (previousBids: readonly Bid[], card: Card): string => `${previousBids.join(",")}|${cardKey(card)}`
 
 const recordOutcome = (outcomes: Map<string, OutcomeCounts>, key: string, won: boolean): void => {
   let counts = outcomes.get(key)
