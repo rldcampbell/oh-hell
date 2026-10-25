@@ -26,16 +26,18 @@ const rankValue: Record<Rank, Value> = {
   "2": 1,
 } 
 
-const trumpIndicatorCard = { suit: "♠️", rank: "2"} as const satisfies Card
-
-const trumpSuit = trumpIndicatorCard.suit
-
 type Card = {
   readonly suit: Suit
   readonly rank: Rank
 }
 
-const beatsCurrentWinner = (candidate: Card, currentWinner: Card, ledSuit: Suit): boolean => {
+const fullDeck: readonly Card[] = suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank })))
+
+const trumpIndicatorCard = fullDeck.find(({ suit, rank }) => suit === "♠️" && rank === "2")!
+
+const trumpSuit = trumpIndicatorCard.suit
+
+const beatsCurrentWinner = (candidate: Card, currentWinner: Card, ledSuit: Suit, trumpSuit: Suit): boolean => {
   if (candidate.suit === currentWinner.suit) {
     return rankValue[candidate.rank] > rankValue[currentWinner.rank]
   }
@@ -55,14 +57,14 @@ const beatsCurrentWinner = (candidate: Card, currentWinner: Card, ledSuit: Suit)
   return false
 }
 
-const getWinningIndex = (cards: readonly Card[]) => {
+const getWinningIndex = (cards: readonly Card[], trumpSuit: Suit) => {
   let winningCard: Card | undefined
   let ledSuit: Suit | undefined
   let winningIndex = -1
   
   for (const [index, card] of cards.entries()) {
     ledSuit = ledSuit ?? card.suit
-    if (!winningCard || beatsCurrentWinner(card, winningCard, ledSuit)) {
+    if (!winningCard || beatsCurrentWinner(card, winningCard, ledSuit, trumpSuit)) {
       winningIndex = index
       winningCard = card
     }
@@ -73,24 +75,17 @@ const getWinningIndex = (cards: readonly Card[]) => {
 
 type Trick = readonly [Card, Card, Card, Card]
 
-const fullDeck: readonly Card[] = suits.flatMap((suit) => ranks.map((rank) => ({ suit, rank })))
-
-const availableDeck = function* (): Generator<Card> {
-  for (const card of fullDeck) {
-    if (card.suit === trumpIndicatorCard.suit && card.rank === trumpIndicatorCard.rank) continue
-    yield card
-  }
-}
+const availableDeck: readonly Card[] = fullDeck.filter((card) => card !== trumpIndicatorCard)
 
 const generateTricks = function* (): Generator<Trick> {
-  for (const card1 of availableDeck()) {
-    for (const card2 of availableDeck()) {
+  for (const card1 of availableDeck) {
+    for (const card2 of availableDeck) {
       if (card2 === card1) continue
 
-      for (const card3 of availableDeck()) {
+      for (const card3 of availableDeck) {
         if (card3 === card1 || card3 === card2) continue
 
-        for (const card4 of availableDeck()) {
+        for (const card4 of availableDeck) {
           if (card4 === card1 || card4 === card2 || card4 === card3) continue
           yield [card1, card2, card3, card4]
         }
@@ -101,7 +96,7 @@ const generateTricks = function* (): Generator<Trick> {
 
 const generateTricksAndWinner = function* (): Generator<[Trick, number]> {
   for (const trick of generateTricks()) {
-    yield [trick, getWinningIndex(trick)]
+    yield [trick, getWinningIndex(trick, trumpSuit)]
   }
 }
 
@@ -190,7 +185,7 @@ const generateBidHistories = function* (length: number): Generator<Bid[]> {
   }
 }
 
-const trumpCards = [...availableDeck()]
+const trumpCards = availableDeck
   .filter((card) => card.suit === trumpSuit)
   .sort((a, b) => rankValue[b.rank] - rankValue[a.rank])
 
