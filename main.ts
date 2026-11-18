@@ -1,3 +1,7 @@
+const correctBidBonus = 10
+const pointsPerTrick = 1
+const awardTrickPointsOnMiss = true
+
 const suits = ["♠️", "♥️", "♦️", "♣️"] as const
 
 type Suit = (typeof suits)[number]
@@ -106,8 +110,10 @@ type StrategyResult = OutcomeCounts & {
   bid: Bid
   totalScenarios: number
   winProbability: number
+  expectedPointsFromBidOne: number
+  expectedPointsFromBidZero: number
 }
-type Strategy = (previousBids: readonly Bid[], card: Card) => StrategyResult
+type Strategy = (previousBids: readonly Bid[], card: Card) => StrategyResult | undefined
 type CardKey = `${Suit}${Rank}`
 
 const cardKey = ({ suit, rank }: Card): CardKey => `${suit}${rank}` as const
@@ -139,30 +145,40 @@ const deriveStrategy = (playerIndex: number, previousStrategies: readonly Strate
     const previousBids: Bid[] = []
 
     for (const [index, strategy] of previousStrategies.entries()) {
-      previousBids.push(strategy(previousBids, trick[index]).bid)
+      const card = trick[index]
+      const result = strategy(previousBids, card)
+      if (!result) throw new Error(`No outcomes for ${stateKey(previousBids, card)}`)
+      previousBids.push(result.bid)
     }
 
     recordOutcome(outcomes, stateKey(previousBids, trick[playerIndex]), winningIndex === playerIndex)
   }
+
+  // Trick points cancel out of the bid comparison when awarded either way.
+  const bidOneWeight = correctBidBonus + (awardTrickPointsOnMiss ? 0 : pointsPerTrick)
 
   return (previousBids, card) => {
     if (previousBids.length !== playerIndex) {
       throw new Error(`Expected ${playerIndex} previous bids`)
     }
 
-    const key = stateKey(previousBids, card)
-    const counts = outcomes.get(key)
-    if (!counts) throw new Error(`No outcomes for ${key}`)
+    const counts = outcomes.get(stateKey(previousBids, card))
+    if (!counts) return undefined
 
     const { wins, losses } = counts
     const totalScenarios = wins + losses
+    const bidOnePoints = wins * bidOneWeight
+    const bidZeroPoints = losses * correctBidBonus
+    const trickPointsEitherWay = awardTrickPointsOnMiss ? wins * pointsPerTrick : 0
 
     return {
-      bid: wins >= losses ? 1 : 0,
+      bid: bidOnePoints >= bidZeroPoints ? 1 : 0,
       wins,
       losses,
       totalScenarios,
       winProbability: wins / totalScenarios,
+      expectedPointsFromBidOne: (bidOnePoints + trickPointsEitherWay) / totalScenarios,
+      expectedPointsFromBidZero: (bidZeroPoints + trickPointsEitherWay) / totalScenarios,
     }
   }
 }
@@ -184,36 +200,38 @@ const generateBidHistories = function* (length: number): Generator<Bid[]> {
   }
 }
 
-const trumpCards = availableDeck
-  .filter((card) => card.suit === trumpSuit)
-  .sort((a, b) => rankValue[b.rank] - rankValue[a.rank])
+const trumpCards = availableDeck.filter((card) => card.suit === trumpSuit)
+// The three non-trump suits are interchangeable, so one suit represents all three in the table.
+const nonTrumpSuit = suits.find((suit) => suit !== trumpSuit)
+const nonTrumpCards = availableDeck.filter((card) => card.suit === nonTrumpSuit)
 
-const findThresholdCard = (strategy: Strategy, previousBids: readonly Bid[]): Card | undefined => {
-  let thresholdCard: Card | undefined
-  let belowThreshold = false
+const describeBidOneRanks = (strategy: Strategy, previousBids: readonly Bid[], cards: readonly Card[]): string => {
+  const bids = cards.map((card) => ({ rank: card.rank, bid: strategy(previousBids, card)?.bid }))
+  if (bids.every(({ bid }) => bid === undefined)) return "Impossible"
 
-  for (const card of trumpCards) {
-    if (strategy(previousBids, card).bid === 0) {
-      belowThreshold = true
-    } else if (belowThreshold) {
-      throw new Error(`No single trump threshold for bids [${previousBids.join(", ")}]`)
-    } else {
-      thresholdCard = card
-    }
+  const bidOneRanks = bids.filter(({ bid }) => bid === 1).map(({ rank }) => rank)
+  const lowestBidOneRank = bidOneRanks.at(-1)
+  if (lowestBidOneRank === undefined) return "Never"
+  if (bidOneRanks.length === 1) return lowestBidOneRank
+
+  if (bids.slice(0, bidOneRanks.length).every(({ bid }) => bid === 1)) {
+    return `${lowestBidOneRank} or higher`
   }
 
-  return thresholdCard
+  return bidOneRanks.join(", ")
 }
 
 for (const [playerIndex, strategy] of [p1Strategy, p2Strategy, p3Strategy, p4Strategy].entries()) {
   const rows = [...generateBidHistories(playerIndex)].map((previousBids, rowIndex) => {
-    const thresholdCard = findThresholdCard(strategy, previousBids)
     return {
       Player: rowIndex === 0 ? `P${playerIndex + 1}` : "",
       "Previous bids": previousBids.join(", ") || "—",
-      "Trump threshold": thresholdCard?.rank ?? "Never",
+      "Trump (bid 1)": describeBidOneRanks(strategy, previousBids, trumpCards),
+      "Non-trump (bid 1)": describeBidOneRanks(strategy, previousBids, nonTrumpCards),
     }
   })
 
   console.table(rows)
 }
+
+console.log(p1Strategy([], { suit: "♥️", rank: "A" }))
