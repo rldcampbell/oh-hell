@@ -212,6 +212,7 @@ const describeBidOneRanks = (strategy: Strategy, previousBids: readonly Bid[], c
   const bidOneRanks = bids.filter(({ bid }) => bid === 1).map(({ rank }) => rank)
   const lowestBidOneRank = bidOneRanks.at(-1)
   if (lowestBidOneRank === undefined) return "Never"
+  if (bidOneRanks.length === cards.length) return "Any"
   if (bidOneRanks.length === 1) return lowestBidOneRank
 
   if (bids.slice(0, bidOneRanks.length).every(({ bid }) => bid === 1)) {
