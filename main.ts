@@ -41,34 +41,21 @@ const trumpIndicatorCard = fullDeck.find(({ suit, rank }) => suit === "♠️" &
 
 const trumpSuit = trumpIndicatorCard.suit
 
-const beatsCurrentWinner = (candidate: Card, currentWinner: Card, ledSuit: Suit, trumpSuit: Suit): boolean => {
+// The current winner is always in the led suit or the trump suit.
+const beatsCurrentWinner = (candidate: Card, currentWinner: Card, trumpSuit: Suit): boolean => {
   if (candidate.suit === currentWinner.suit) {
     return rankValue[candidate.rank] > rankValue[currentWinner.rank]
   }
 
-  if (candidate.suit === trumpSuit) {
-    return true
-  }
-
-  if (currentWinner.suit === trumpSuit) {
-    return false
-  }
-
-  if (candidate.suit === ledSuit) {
-    return true
-  }
-
-  return false
+  return candidate.suit === trumpSuit
 }
 
 const getWinningIndex = (cards: readonly Card[], trumpSuit: Suit) => {
   let winningCard: Card | undefined
-  let ledSuit: Suit | undefined
   let winningIndex = -1
 
   for (const [index, card] of cards.entries()) {
-    ledSuit = ledSuit ?? card.suit
-    if (!winningCard || beatsCurrentWinner(card, winningCard, ledSuit, trumpSuit)) {
+    if (!winningCard || beatsCurrentWinner(card, winningCard, trumpSuit)) {
       winningIndex = index
       winningCard = card
     }
